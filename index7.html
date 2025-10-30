@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Large Tabulation with Source Selection</title>
+    <style>
+        /*
+          Accessible colour palette:
+          - Backgrounds are light to support high contrast.
+          - Accent colours are dark blue and green for better differentiation.
+          - Danger is red for warnings.
+          - Border colours are subtle greys.
+        */
+        :root {
+            --bg: #f5f5f5;
+            --panel: #ffffff;
+            --panel-2: #f0f0f0;
+            --text: #222222;
+            --muted: #555555;
+            --accent: #005a9e;
+            --accent-hover: #003e71;
+            --ok: #2e7d32;
+            --danger: #c62828;
+            --border: #cccccc;
+        }
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.5 "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        header {
+            padding: 12px 16px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+        header .title {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        header .pill {
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px 8px;
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+        header .controls {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        button {
+            appearance: none;
+            border: 1px solid var(--border);
+            background: var(--panel-2);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+            font-size: 0.875rem;
+        }
+        button:hover:not([disabled]) {
+            background: var(--accent-hover);
+            color: #ffffff;
+            border-color: var(--accent-hover);
+        }
+        button:active:not([disabled]) {
+            transform: translateY(1px);
+        }
+        button[disabled] {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .btn-ok {
+            background: var(--ok);
+            border-color: var(--ok);
+            color: #ffffff;
+        }
+        .btn-ok:hover:not([disabled]) {
+            background: #1b5e20;
+            border-color: #1b5e20;
+        }
+        .btn-danger {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: #ffffff;
+        }
+        .btn-danger:hover:not([disabled]) {
+            background: #8e0000;
+            border-color: #8e0000;
+        }
+        main {
+            padding: 16px;
+        }
+        /* Source selection panel */
+        #sourcePanel {
+            margin-bottom: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        #sourcePanel label {
+            font-weight: 600;
+        }
+        #sourcePanel select {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel);
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        #progressBoard {
+            margin-left: 8px;
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        /* Table styles */
+        .table-wrap {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--panel);
+        }
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.9rem;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background: var(--panel-2);
+            color: var(--text);
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            z-index: 2;
+            text-align: left;
+        }
+        tbody td {
+            padding: 9px 10px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+        tbody tr:nth-child(odd) td {
+            background: var(--panel);
+        }
+        tbody tr:nth-child(even) td {
+            background: var(--panel-2);
+        }
+        tbody tr:hover td {
+            background: #e5e5e5;
+        }
+        .num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .mono {
+            font-family: ui-monospace, "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+        }
+        .image-count {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        .status-dot.ok {
+            background: var(--ok);
+        }
+        .status-dot.pending {
+            background: #fbc02d;
+        }
+        .status-dot.fail {
+            background: var(--danger);
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+        .pagination .page-info {
+            color: var(--muted);
+        }
+        .pagination input[type="number"] {
+            width: 100px;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel);
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        /* Modal styles */
+        /*
+          Modal overlay: ensure it sits on top of the sticky table headers and
+          fills the viewport. A high z-index is used so the modal content and
+          controls are not obscured by the rest of the page. The dialog uses
+          display:grid only when the "open" attribute is set. Otherwise it
+          remains hidden.
+        */
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            place-items: center;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(2px);
+            z-index: 1000; /* ensure modal overlays sticky table headers */
+        }
+        .modal[open] {
+            display: grid;
+        }
+        .modal-card {
+            width: min(1100px, 95vw);
+            height: min(700px, 90vh);
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            overflow: hidden;
+        }
+        .modal-left {
+            padding: 12px;
+            overflow: auto;
+            border-right: 1px solid var(--border);
+        }
+        .thumb-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+        }
+        .thumb {
+            position: relative;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--panel-2);
+        }
+        .thumb img {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            display: block;
+        }
+        .thumb .topbar {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .thumb input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+        .thumb .edit {
+            position: absolute;
+            right: 6px;
+            top: 6px;
+            font-size: 0.7rem;
+            padding: 4px 6px;
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #ffffff;
+        }
+        .thumb .edit:hover:not([disabled]) {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+        .modal-right {
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+        }
+        .editor-toolbar {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .editor-stage {
+            position: relative;
+            background: var(--panel-2);
+            display: grid;
+            place-items: center;
+        }
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+            cursor: crosshair;
+        }
+        .selection-box {
+            position: absolute;
+            border: 1.5px dashed var(--accent);
+            box-shadow: inset 0 0 0 1px rgba(0, 90, 158, 0.5);
+            pointer-events: none;
+        }
+        .editor-actions {
+            padding: 10px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        .legend {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        /* Inline editable cells */
+        .cell-edit {
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 4px 6px;
+            width: 100%;
+        }
+        .cell-edit:focus {
+            outline: 1px solid var(--accent);
+            border-color: var(--accent);
+            background: var(--panel);
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="title">Large Tabulation</div>
+    <div class="pill">Single file · Accessible · Dynamic data</div>
+    <div class="controls">
+        <button id="regen" title="Regenerate demo dataset">Regenerate</button>
+        <button id="reloadPage" title="Re-render current page">Re-Render</button>
+    </div>
+</header>
+<main>
+    <!-- Source selection panel -->
+    <div id="sourcePanel" aria-label="Data source selection panel">
+        <label for="sourceSelect">Choose a data source:</label>
+        <select id="sourceSelect" aria-label="Data source options"></select>
+        <button id="fetchButton" aria-label="Fetch data" disabled>Fetch</button>
+        <span id="progressBoard" aria-live="polite"></span>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+        <table id="table" role="table">
+            <thead>
+            <tr>
+                <th scope="col">ID</th>
+                <th scope="col">Name</th>
+                <th scope="col" class="num">Value</th>
+                <th scope="col">Status</th>
+                <th scope="col">Category</th>
+                <th scope="col">Created</th>
+                <th scope="col">Image Cnt</th>
+                <th scope="col">Net</th>
+                <th scope="col">Edit Fields</th>
+            </tr>
+            </thead>
+            <tbody id="tbody">
+            <!-- rows will be injected here -->
+            </tbody>
+        </table>
+    </div>
+    <!-- Pagination controls -->
+    <div class="pagination" aria-label="Pagination controls">
+        <div class="page-info">
+            <span id="pageText">Page 1</span> ·
+            <span id="rangeText">1–0</span> of
+            <span id="totalText">0</span>
+        </div>
+        <div class="flex gap-8">
+            <button id="firstBtn">« First</button>
+            <button id="prevBtn">‹ Prev</button>
+            <button id="nextBtn">Next ›</button>
+            <button id="lastBtn">Last »</button>
+        </div>
+        <div class="flex gap-8" style="align-items:center;">
+            Go to page:
+            <input type="number" id="gotoInput" min="1" step="1" aria-label="Go to page number" />
+            <button id="gotoBtn">Go</button>
+        </div>
+    </div>
+</main>
+
+<!-- Row template -->
+<template id="row-tpl">
+    <tr>
+        <td class="mono id"></td>
+        <td class="name"></td>
+        <td class="num value"></td>
+        <td class="status"></td>
+        <td class="category"></td>
+        <td class="created mono"></td>
+        <td class="image-count mono"></td>
+        <td class="net mono"></td>
+        <td class="edit mono"></td>
+    </tr>
+</template>
+
+<!-- Modal -->
+<dialog class="modal" id="imageModal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <section class="modal-left">
+            <div class="flex" style="justify-content: space-between; align-items:center; margin-bottom:8px;">
+                <div id="modalTitle" class="legend">Images</div>
+                <div class="flex gap-8">
+                    <button id="saveThumbChanges" class="btn-ok" aria-label="Save image changes">Save Changes</button>
+                    <button id="closeModal" aria-label="Close image modal">Close</button>
+                </div>
+            </div>
+            <div id="thumbGrid" class="thumb-grid"></div>
+        </section>
+        <section class="modal-right">
+            <div class="editor-toolbar">
+                <span class="legend">Editor (click &amp; drag to select)</span>
+                <span id="editorHint" class="legend" style="margin-left:auto;">No image selected</span>
+            </div>
+            <div class="editor-stage" id="editorStage">
+                <!-- Wrapper to position the canvas and selection overlay together.  -->
+                <div id="canvasWrapper" style="position:relative; display:inline-block;">
+                    <canvas id="editorCanvas" aria-label="Image editor canvas"></canvas>
+                    <div id="selectionBox" class="selection-box" style="display:none;"></div>
+                </div>
+            </div>
+            <div class="editor-actions">
+                <button id="resetSel" aria-label="Reset selection">Reset</button>
+                <button id="applyEdit" class="btn-ok" aria-label="Apply crop" disabled>Apply</button>
+            </div>
+        </section>
+    </div>
+</dialog>
+
+<script>
+    (function() {
+        'use strict';
+        /* Utility functions */
+        const $ = (sel) => document.querySelector(sel);
+        const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+        const fmtInt = (n) => n.toLocaleString('en-IN');
+        const escapeHtml = (s) => s.replace(/[&<>"']/g, (m) => {
+            const map = {"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"};
+            return map[m];
+        });
+        /* State */
+        const STATE = {
+            rows: [],
+            page: 1,
+            pageSize: 50,
+            total: 0,
+            modalRowIndex: null,
+            modalWorking: null,
+            modalSelectedIdx: null
+        };
+        /* Random generator for demo */
+        const rand = ((seed) => () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296)(42);
+        const makeThumbDataURL = (idx, w = 240, h = 160) => {
+            // Generate a small SVG for demonstration thumbnails. To avoid URI encoding issues
+            // that can prevent the image from loading into the canvas, encode as base64.
+            const hue = (idx * 37) % 360;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="hsl(${hue},70%,40%)" />
+            <stop offset="100%" stop-color="hsl(${(hue + 40) % 360},70%,60%)" />
+          </linearGradient>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#g)" />
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle"
+              fill="white" font-size="24" font-family="Arial, sans-serif">${idx}</text>
+      </svg>`;
+            // Encode to base64 for stable Data URL
+            const b64 = btoa(unescape(encodeURIComponent(svg)));
+            return 'data:image/svg+xml;base64,' + b64;
+        };
+        function genRow(i) {
+            const imgCount = 1 + Math.floor(rand() * 6);
+            const images = Array.from({ length: imgCount }, (_, k) => makeThumbDataURL(i * 7 + k));
+            return {
+                id: i + 1,
+                name: 'Item ' + (i + 1),
+                value: Math.floor(rand() * 100000),
+                status: ['ok','pending','fail'][Math.floor(rand() * 3)],
+                category: ['alpha','beta','gamma','delta'][Math.floor(rand() * 4)],
+                created: new Date(Date.now() - Math.floor(rand() * 365) * 86400000).toISOString().slice(0, 10),
+                images: images,
+                netStatus: '—',
+                editable: false
+            };
+        }
+        function buildDataset(n = 20000) {
+            const arr = new Array(n);
+            for (let i = 0; i < n; i++) arr[i] = genRow(i);
+            return arr;
+        }
+        /* Source selection & backend */
+        const sourceSelect = $('#sourceSelect');
+        const fetchButton = $('#fetchButton');
+        const progressBoard = $('#progressBoard');
+        let selectedSource = null;
+        async function fetchSources() {
+            progressBoard.textContent = 'Loading sources...';
+            try {
+                const res = await fetch('http://localhost:3100/urllist');
+                if (!res.ok) throw new Error('Network error');
+                const list = await res.json();
+                sourceSelect.innerHTML = '<option value="">-- Select --</option>';
+                list.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = item.name;
+                    opt.textContent = item.name;
+                    opt.dataset.url = item.websiteurl || '';
+                    sourceSelect.appendChild(opt);
+                });
+                progressBoard.textContent = 'Sources loaded. Please select.';
+            } catch (err) {
+                progressBoard.textContent = 'Failed to load sources';
+            }
+        }
+        async function notifyBackend(name) {
+            // Update progress: inform backend that a source has been selected
+            progressBoard.textContent = 'Informed backend about ' + name;
+            try {
+                const informRes = await fetch('http://localhost:3100/notify?name=' + encodeURIComponent(name));
+                if (!informRes.ok) throw new Error('Network error');
+                await informRes.text();
+                // Update progress board again to show acknowledgement
+                progressBoard.textContent = 'Backend acknowledged the informing request. You may now fetch the data.';
+                // Enable fetch button so user can request the dataset
+                fetchButton.disabled = false;
+            } catch (err) {
+                progressBoard.textContent = 'Error informing backend';
+            }
+        }
+        async function requestData(name) {
+            progressBoard.textContent = 'Fetching data for ' + name + '...';
+            try {
+                const dataRes = await fetch('http://localhost:3100/data?name=' + encodeURIComponent(name));
+                if (!dataRes.ok) throw new Error('Network error');
+                const json = await dataRes.json();
+                progressBoard.textContent = 'Data loaded. Rendering table.';
+                loadDataFromJson(json);
+            } catch (err) {
+                progressBoard.textContent = 'Error fetching data';
+            }
+        }
+        sourceSelect.addEventListener('change', () => {
+            const value = sourceSelect.value;
+            if (!value) {
+                progressBoard.textContent = '';
+                fetchButton.disabled = true;
+                selectedSource = null;
+                return;
+            }
+            selectedSource = { name: value, url: sourceSelect.selectedOptions[0].dataset.url || '' };
+            fetchButton.disabled = true;
+            notifyBackend(value);
+        });
+        fetchButton.addEventListener('click', () => {
+            if (!selectedSource) return;
+            requestData(selectedSource.name);
+        });
+        /* Table & pagination */
+        const tbody = $('#tbody');
+        const rowTpl = $('#row-tpl');
+        const pageText = $('#pageText');
+        const rangeText = $('#rangeText');
+        const totalText = $('#totalText');
+        const firstBtn = $('#firstBtn');
+        const prevBtn = $('#prevBtn');
+        const nextBtn = $('#nextBtn');
+        const lastBtn = $('#lastBtn');
+        const gotoInput = $('#gotoInput');
+        const gotoBtn = $('#gotoBtn');
+        function isRowVisible(id) {
+            const start = (STATE.page - 1) * STATE.pageSize + 1;
+            const end = Math.min(STATE.total, start + STATE.pageSize - 1);
+            return id >= start && id <= end;
+        }
+        function simulateNetworkStatus(row) {
+            row.netStatus = '…';
+            const delay = 200 + Math.floor(rand() * 600);
+            setTimeout(() => {
+                const r = rand();
+                row.netStatus = r < 0.8 ? 'OK' : 'ERR';
+                if (isRowVisible(row.id)) {
+                    const cell = document.querySelector('td[data-cell="net"][data-id="' + row.id + '"]');
+                    if (cell) cell.textContent = row.netStatus;
+                }
+            }, delay);
+        }
+        function renderPage() {
+            const { page, pageSize, rows } = STATE;
+            const start = (page - 1) * pageSize;
+            const end = Math.min(rows.length, start + pageSize);
+            const frag = document.createDocumentFragment();
+            for (let i = start; i < end; i++) {
+                const r = rows[i];
+                const node = rowTpl.content.cloneNode(true);
+                const tr = node.querySelector('tr');
+                tr.querySelector('.id').textContent = r.id;
+                tr.querySelector('.name').textContent = r.name;
+                tr.querySelector('.value').textContent = fmtInt(r.value);
+                const statusCell = tr.querySelector('.status');
+                statusCell.innerHTML = '<span class="status-dot ' + r.status + '"></span>' + r.status;
+                tr.querySelector('.category').textContent = r.category;
+                tr.querySelector('.created').textContent = r.created;
+                const imgCntCell = tr.querySelector('.image-count');
+                imgCntCell.textContent = r.images.length;
+                imgCntCell.classList.add('image-count');
+                imgCntCell.dataset.id = r.id;
+                imgCntCell.setAttribute('title', 'Click to view images for row ' + r.id);
+                const netCell = tr.querySelector('.net');
+                netCell.dataset.cell = 'net';
+                netCell.dataset.id = r.id;
+                netCell.textContent = r.netStatus;
+                if (r.netStatus === '—') {
+                    simulateNetworkStatus(r);
+                }
+                const editCell = tr.querySelector('.edit');
+                editCell.innerHTML = '<button class="btn" data-action="toggle-edit" data-id="' + r.id + '" aria-label="Toggle edit for row ' + r.id + '">' + (r.editable ? 'Save' : 'Edit') + '</button>';
+                if (r.editable) {
+                    tr.querySelector('.name').innerHTML = '<input class="cell-edit" data-bind="name" value="' + escapeHtml(r.name) + '" aria-label="Name" />';
+                    tr.querySelector('.value').innerHTML = '<input class="cell-edit" data-bind="value" type="number" min="0" value="' + r.value + '" aria-label="Value" />';
+                    tr.querySelector('.status').innerHTML = '<select class="cell-edit" data-bind="status" aria-label="Status">' + ['ok','pending','fail'].map(s => '<option ' + (s === r.status ? 'selected' : '') + '>' + s + '</option>').join('') + '</select>';
+                    tr.querySelector('.category').innerHTML = '<select class="cell-edit" data-bind="category" aria-label="Category">' + ['alpha','beta','gamma','delta'].map(s => '<option ' + (s === r.category ? 'selected' : '') + '>' + s + '</option>').join('') + '</select>';
+                    tr.querySelector('.created').innerHTML = '<input class="cell-edit" data-bind="created" type="date" value="' + r.created + '" aria-label="Created date" />';
+                }
+                frag.appendChild(node);
+            }
+            tbody.replaceChildren(frag);
+            updatePaginationUI();
+        }
+        function updatePaginationUI() {
+            const { page, pageSize, rows } = STATE;
+            const start = (page - 1) * pageSize + 1;
+            const end = Math.min(rows.length, start + pageSize - 1);
+            pageText.textContent = 'Page ' + page;
+            rangeText.textContent = fmtInt(start) + '–' + fmtInt(end);
+            totalText.textContent = fmtInt(rows.length);
+            gotoInput.value = page;
+            firstBtn.disabled = page <= 1;
+            prevBtn.disabled = page <= 1;
+            const totalPages = Math.ceil(rows.length / pageSize);
+            nextBtn.disabled = page >= totalPages;
+            lastBtn.disabled = page >= totalPages;
+        }
+        firstBtn.onclick = () => { STATE.page = 1; renderPage(); };
+        prevBtn.onclick = () => { if (STATE.page > 1) { STATE.page--; renderPage(); } };
+        nextBtn.onclick = () => {
+            const totalPages = Math.ceil(STATE.rows.length / STATE.pageSize);
+            if (STATE.page < totalPages) { STATE.page++; renderPage(); }
+        };
+        lastBtn.onclick = () => {
+            STATE.page = Math.ceil(STATE.rows.length / STATE.pageSize);
+            renderPage();
+        };
+        gotoBtn.onclick = () => {
+            const val = parseInt(gotoInput.value || '1', 10);
+            const totalPages = Math.ceil(STATE.rows.length / STATE.pageSize);
+            const target = Math.max(1, Math.min(val, totalPages));
+            STATE.page = target;
+            renderPage();
+        };
+        /* Row events */
+        tbody.addEventListener('click', (e) => {
+            const t = e.target;
+            if (t.classList.contains('image-count')) {
+                const id = +t.dataset.id;
+                const idx = STATE.rows.findIndex(r => r.id === id);
+                if (idx >= 0) openImageModal(idx);
+                return;
+            }
+            if (t.matches('button[data-action="toggle-edit"]')) {
+                const id = +t.dataset.id;
+                const idx = STATE.rows.findIndex(r => r.id === id);
+                if (idx >= 0) {
+                    const row = STATE.rows[idx];
+                    if (row.editable) {
+                        const tr = t.closest('tr');
+                        const get = (sel) => tr.querySelector(sel);
+                        row.name = get('[data-bind="name"]')?.value || row.name;
+                        row.value = +get('[data-bind="value"]')?.value || row.value;
+                        row.status = get('[data-bind="status"]')?.value || row.status;
+                        row.category = get('[data-bind="category"]')?.value || row.category;
+                        row.created = get('[data-bind="created"]')?.value || row.created;
+                        row.editable = false;
+                    } else {
+                        row.editable = true;
+                    }
+                    renderPage();
+                }
+            }
+        });
+        /* Load data from JSON */
+        function loadDataFromJson(json) {
+            if (!Array.isArray(json)) {
+                console.warn('Unexpected data format, expected an array');
+                return;
+            }
+            STATE.rows = json.map((item, index) => {
+                const images = Array.isArray(item.images) ? item.images : [];
+                return {
+                    id: item.id != null ? item.id : index + 1,
+                    name: item.name || 'N/A',
+                    value: item.value || 0,
+                    status: item.status || 'pending',
+                    category: item.category || 'misc',
+                    created: item.created || new Date().toISOString().slice(0, 10),
+                    images: images,
+                    netStatus: '—',
+                    editable: false
+                };
+            });
+            STATE.total = STATE.rows.length;
+            STATE.page = 1;
+            // Show table now that data is available
+            document.querySelector('.table-wrap').style.display = '';
+            renderPage();
+        }
+        /* Image modal & editor */
+        const imageModal = $('#imageModal');
+        const thumbGrid = $('#thumbGrid');
+        const modalTitle = $('#modalTitle');
+        const closeModalBtn = $('#closeModal');
+        const saveThumbChangesBtn = $('#saveThumbChanges');
+        const editorCanvas = $('#editorCanvas');
+        const selectionBox = $('#selectionBox');
+        const applyEditBtn = $('#applyEdit');
+        const resetSelBtn = $('#resetSel');
+        const editorHint = $('#editorHint');
+        const ctx = editorCanvas.getContext('2d');
+        let imgEl = null;
+        let imgLoaded = false;
+        let selection = { x: 0, y: 0, w: 0, h: 0 };
+        let isSelecting = false;
+        let startX = 0;
+        let startY = 0;
+        function openImageModal(rowIndex) {
+            STATE.modalRowIndex = rowIndex;
+            const row = STATE.rows[rowIndex];
+            STATE.modalWorking = row.images.slice();
+            STATE.modalSelectedIdx = null;
+            modalTitle.textContent = 'Images · Row ID ' + row.id + ' · Count ' + row.images.length;
+            applyEditBtn.disabled = true;
+            editorHint.textContent = 'No image selected';
+            clearCanvas();
+            selectionBox.style.display = 'none';
+            renderThumbs();
+            imageModal.setAttribute('open', '');
+        }
+        function closeImageModal() {
+            imageModal.removeAttribute('open');
+            STATE.modalRowIndex = null;
+            STATE.modalWorking = null;
+            STATE.modalSelectedIdx = null;
+        }
+        function renderThumbs() {
+            thumbGrid.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            STATE.modalWorking.forEach((url, i) => {
+                const wrap = document.createElement('div');
+                wrap.className = 'thumb';
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = 'Thumbnail ' + (i + 1);
+                const topbar = document.createElement('div');
+                topbar.className = 'topbar';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.idx = i;
+                checkbox.checked = true;
+                topbar.appendChild(checkbox);
+                const editBtn = document.createElement('button');
+                editBtn.className = 'edit';
+                editBtn.textContent = 'Edit';
+                editBtn.dataset.idx = i;
+                editBtn.setAttribute('aria-label', 'Edit image ' + (i + 1));
+                wrap.appendChild(img);
+                wrap.appendChild(topbar);
+                wrap.appendChild(editBtn);
+                frag.appendChild(wrap);
+            });
+            thumbGrid.appendChild(frag);
+        }
+        thumbGrid.addEventListener('change', (e) => {
+            // checkboxes handled on save
+        });
+        thumbGrid.addEventListener('click', async (e) => {
+            const t = e.target;
+            if (t.matches('button.edit[data-idx]')) {
+                const idx = +t.dataset.idx;
+                STATE.modalSelectedIdx = idx;
+                const url = STATE.modalWorking[idx];
+                await loadImageIntoCanvas(url);
+                editorHint.textContent = 'Editing image #' + (idx + 1);
+                applyEditBtn.disabled = false;
+            }
+        });
+        closeModalBtn.onclick = () => {
+            closeImageModal();
+        };
+        saveThumbChangesBtn.onclick = () => {
+            if (STATE.modalRowIndex == null) return;
+            const row = STATE.rows[STATE.modalRowIndex];
+            const checks = Array.from(thumbGrid.querySelectorAll('input[type="checkbox"][data-idx]'));
+            const kept = [];
+            checks.forEach((c, i) => {
+                if (c.checked) kept.push(STATE.modalWorking[i]);
+            });
+            row.images = kept;
+            renderPage();
+            closeImageModal();
+        };
+        resetSelBtn.onclick = () => {
+            if (!imgLoaded) return;
+            selection = { x: 0, y: 0, w: editorCanvas.width, h: editorCanvas.height };
+            updateSelectionOverlay();
+            drawCanvas();
+        };
+        applyEditBtn.onclick = async () => {
+            if (STATE.modalSelectedIdx == null || !imgLoaded) return;
+            const scaleX = imgEl.naturalWidth / editorCanvas.width;
+            const scaleY = imgEl.naturalHeight / editorCanvas.height;
+            const sx = Math.round(selection.x * scaleX);
+            const sy = Math.round(selection.y * scaleY);
+            const sw = Math.round(selection.w * scaleX);
+            const sh = Math.round(selection.h * scaleY);
+            const tmp = document.createElement('canvas');
+            tmp.width = sw;
+            tmp.height = sh;
+            const tctx = tmp.getContext('2d');
+            tctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, sw, sh);
+            const newUrl = tmp.toDataURL('image/png');
+            STATE.modalWorking[STATE.modalSelectedIdx] = newUrl;
+            const img = thumbGrid.querySelectorAll('img')[STATE.modalSelectedIdx];
+            if (img) img.src = newUrl;
+            editorHint.textContent = 'Applied crop';
+            applyEditBtn.disabled = true;
+            imgLoaded = false;
+            clearCanvas();
+            selectionBox.style.display = 'none';
+            simulateBackendSaveImage(newUrl);
+        };
+        function simulateBackendSaveImage(_dataUrl) {
+            console.log('Simulated backend save of image length', _dataUrl.length);
+        }
+        async function loadImageIntoCanvas(url) {
+            return new Promise((resolve, reject) => {
+                imgEl = new Image();
+                // Allow drawing of images from other origins onto the canvas
+                imgEl.crossOrigin = 'anonymous';
+                imgEl.onload = () => {
+                    imgLoaded = true;
+                    // Fit the loaded image into a reasonable canvas size
+                    const maxW = 500;
+                    const maxH = 400;
+                    let w = imgEl.naturalWidth;
+                    let h = imgEl.naturalHeight;
+                    if (!w || !h) {
+                        // If natural dimensions are zero, fall back to defaults
+                        w = 500;
+                        h = 400;
+                    }
+                    const ratio = Math.min(maxW / w, maxH / h, 1);
+                    editorCanvas.width = Math.floor(w * ratio);
+                    editorCanvas.height = Math.floor(h * ratio);
+                    // Ensure the canvas element itself has matching CSS dimensions so that it is visible
+                    editorCanvas.style.width = editorCanvas.width + 'px';
+                    editorCanvas.style.height = editorCanvas.height + 'px';
+                    // Default selection covers entire image initially
+                    selection = { x: 0, y: 0, w: editorCanvas.width, h: editorCanvas.height };
+                    drawCanvas();
+                    updateSelectionOverlay();
+                    resolve();
+                };
+                imgEl.onerror = reject;
+                imgEl.src = url;
+            });
+        }
+        function clearCanvas() {
+            const context = editorCanvas.getContext('2d');
+            context.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+        }
+        function drawCanvas() {
+            if (!imgLoaded) {
+                clearCanvas();
+                return;
+            }
+            // Obtain a fresh context each time, in case the canvas has been resized
+            const context = editorCanvas.getContext('2d');
+            context.imageSmoothingEnabled = true;
+            context.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+            // Draw the image scaled to the canvas size. We avoid drawing an overlay here;
+            // the selection overlay is handled via an absolutely positioned element.
+            context.drawImage(
+                imgEl,
+                0,
+                0,
+                imgEl.naturalWidth,
+                imgEl.naturalHeight,
+                0,
+                0,
+                editorCanvas.width,
+                editorCanvas.height
+            );
+        }
+        function updateSelectionOverlay() {
+            selectionBox.style.display = imgLoaded ? 'block' : 'none';
+            selectionBox.style.left = selection.x + 'px';
+            selectionBox.style.top = selection.y + 'px';
+            selectionBox.style.width = selection.w + 'px';
+            selectionBox.style.height = selection.h + 'px';
+        }
+        editorCanvas.addEventListener('mousedown', (e) => {
+            if (!imgLoaded) return;
+            const rect = editorCanvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            isSelecting = true;
+            selection = { x: startX, y: startY, w: 0, h: 0 };
+            updateSelectionOverlay();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!isSelecting || !imgLoaded) return;
+            const rect = editorCanvas.getBoundingClientRect();
+            const currX = e.clientX - rect.left;
+            const currY = e.clientY - rect.top;
+            const x1 = Math.min(startX, currX);
+            const y1 = Math.min(startY, currY);
+            const x2 = Math.max(startX, currX);
+            const y2 = Math.max(startY, currY);
+            selection.x = Math.max(0, Math.min(x1, editorCanvas.width));
+            selection.y = Math.max(0, Math.min(y1, editorCanvas.height));
+            selection.w = Math.max(1, Math.min(x2, editorCanvas.width) - selection.x);
+            selection.h = Math.max(1, Math.min(y2, editorCanvas.height) - selection.y);
+            updateSelectionOverlay();
+            drawCanvas();
+        });
+        window.addEventListener('mouseup', () => {
+            if (isSelecting) {
+                isSelecting = false;
+            }
+        });
+        /* Init & regeneration */
+        async function init() {
+            // On initial load we do not populate demo data. Instead we fetch available sources
+            // from the backend. The table will remain hidden until data is loaded via the
+            // fetch button. This prevents the default demo dataset from showing on first load.
+            STATE.rows = [];
+            STATE.total = 0;
+            STATE.page = 1;
+            // Hide table until data is available
+            document.querySelector('.table-wrap').style.display = 'none';
+            updatePaginationUI();
+            await fetchSources();
+        }
+        document.getElementById('regen').onclick = () => {
+            STATE.rows = buildDataset(20000);
+            STATE.total = STATE.rows.length;
+            STATE.page = 1;
+            // Ensure table is visible when generating demo data
+            document.querySelector('.table-wrap').style.display = '';
+            renderPage();
+            progressBoard.textContent = '';
+        };
+        document.getElementById('reloadPage').onclick = () => {
+            renderPage();
+        };
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+</script>
+</body>
+</html>

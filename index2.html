@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+    <title>Config-Rendered URL Select</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body {background-color: #f9fafb;font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont;}
+    </style>
+</head>
+<body class="p-6">
+
+<div id="urlSelectMount"></div>
+
+<script>
+    /********************************************************************
+     * THEME + STYLES: centralized look and feel
+     ********************************************************************/
+    const STYLES = {
+        urlSelect: {
+            wrapper:"flex flex-col gap-1 p-4 bg-white rounded-md border border-gray-200 shadow-sm w-fit",
+            label:"text-[11px] font-semibold uppercase tracking-wide text-gray-500",
+            select: "block w-64 min-w-[12rem] rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed",
+            optionBase:"text-sm text-gray-800",
+            optionDisabled:"text-sm text-gray-400",
+            optionError:"text-sm text-red-600 font-semibold",
+        },
+    };
+
+    /********************************************************************
+     * ACTIONS: global behavior handlers
+     * We reference them by string name in config (no inline closures in config)
+     ********************************************************************/
+    const ACTIONS = {
+        urlSelect_onChange(event) {alert(`selected is ${event.target.value}`);}
+    };
+
+    /********************************************************************
+     * COMPONENT VARIANTS
+     * urlSelect.initial()       -> "Please wait..."
+     * urlSelect.onfetchFail()   -> "Error loading URLs"
+     * urlSelect.onfetchSuccess() -> "Select a URL" + real options
+     *
+     * Each variant returns an ARRAY of element configs.
+     ********************************************************************/
+    const Blocks={
+        urlSelect:{
+            wrapper: {type: "div",id: "urlSelect-WrapperElement",class: STYLES.urlSelect.wrapper},
+            label: {type: "label", id: "urlSelect-LabelElement",parent: "urlSelect-WrapperElement",class: STYLES.urlSelect.label,attrs: { for: "urlSelect-SelectElement" }, text: "Website",},
+            select:(attrs={disabled:true})=>{return {type: "select",id: "urlSelect-SelectElement",parent: "urlSelect-WrapperElement",class: STYLES.urlSelect.select,attrs:attrs,on: { change: "urlSelect_onChange" }}},
+            initialOption: { type: "option",id: "urlSelect-InitialOption", parent: "urlSelect-SelectElement",class: STYLES.urlSelect.optionDisabled,attrs: { value: "", selected: true },text: "Please wait, getting URLs…",},
+            errorOption: {type: "option",id: "urlSelect-ErrorOption",parent: "urlSelect-SelectElement",class: STYLES.urlSelect.optionError,attrs: { value: "", selected: true },text: "Error loading URLs",},
+            selectReadyOption:{type: "option",id: "urlSelect-SelectReadyOption",parent: "urlSelect-SelectElement",class: STYLES.urlSelect.optionDisabled,attrs: { value: "", selected: true },text: "Select a URL",},
+            baseOption:(site,i)=>{return {type: "option",id: `urlSelect-BaseOption-${i}`,parent: "urlSelect-SelectElement",class: STYLES.urlSelect.optionBase,attrs: { value: site.value },text: site.label,}}
+        }
+    }
+    const COMPONENTS = {
+        urlSelect: {
+            initial:() => [Blocks.urlSelect.wrapper,Blocks.urlSelect.label,Blocks.urlSelect.select,Blocks.urlSelect.initialOption],
+            onfetchFail:()=>[Blocks.urlSelect.wrapper,Blocks.urlSelect.label,Blocks.urlSelect.select,{attrs: { disabled: false }},Blocks.urlSelect.errorOption],
+            onfetchSuccess:(sitesArray)=> [Blocks.urlSelect.wrapper,Blocks.urlSelect.label,Blocks.urlSelect.select,Blocks.urlSelect.selectReadyOption,...sitesArray.map((site, i) => Blocks.urlSelect.baseOption(site,i))]}}
+
+    /********************************************************************
+     * RENDER ENGINE
+     * renderVariant(configArray, mountSelector)
+     *
+     * - 1st pass: create all elements and registry
+     * - 2nd pass: apply class, attrs, text, events
+     * - 3rd pass: append children to parents or mount root
+     ********************************************************************/
+    function renderVariant(elementConfigs, mountSelector) {
+        const mountPoint = (
+            typeof mountSelector === "string"
+                ? document.querySelector(mountSelector)
+                : mountSelector
+        );
+
+        if (!mountPoint) {
+            throw new Error("Mount point not found for " + mountSelector);
+        }
+
+        // wipe mount before re-rendering this component
+        // (so state switches cleanly: initial -> success/fail)
+        mountPoint.textContent = "";
+
+        // registry of created HTMLElements by cfg.id
+        const registry = {};
+
+        // 1. Create
+        elementConfigs.forEach(cfg => {
+            registry[cfg.id] = document.createElement(cfg.type);
+        });
+
+        // 2. Decorate
+        elementConfigs.forEach(cfg => {
+            const el = registry[cfg.id];
+
+            // classes
+            if (cfg.class) {
+                el.setAttribute("class", cfg.class);
+            }
+
+            // attrs
+            if (cfg.attrs) {
+                Object.entries(cfg.attrs).forEach(([key, val]) => {
+                    // If it's a known DOM property, assign directly (like disabled, value, id, etc.)
+                    if (key in el) {
+                        el[key] = val;
+                    } else {
+                        el.setAttribute(key, val);
+                    }
+                });
+            }
+
+            // textContent
+            if (cfg.text !== undefined && cfg.text !== null) {
+                el.textContent = cfg.text;
+            }
+
+            // events
+            if (cfg.on) {
+                Object.entries(cfg.on).forEach(([eventName, actionName]) => {
+                    const handler = ACTIONS[actionName];
+                    if (typeof handler === "function") {
+                        el.addEventListener(eventName, (e) => handler(e));
+                    } else {
+                        console.warn(`No ACTIONS["${actionName}"] defined`);
+                    }
+                });
+            }
+        });
+
+        // 3. Build hierarchy
+        elementConfigs.forEach(cfg => {
+            const el = registry[cfg.id];
+            if (cfg.parent) {
+                const parentEl = registry[cfg.parent];
+                if (!parentEl) {
+                    console.warn(`Parent ${cfg.parent} not found for child ${cfg.id}`);
+                } else {
+                    parentEl.appendChild(el);
+                }
+            } else {
+                // top-level goes straight into mount
+                mountPoint.appendChild(el);
+            }
+        });
+
+        // You might want to return registry to mutate later
+        return registry;
+    }
+
+    /********************************************************************
+     * BOOT FLOW
+     *
+     * 1. Render "initial" state
+     * 2. Fetch the URL list from backend
+     * 3. On success => render success variant
+     *    On fail    => render fail variant
+     ********************************************************************/
+
+    document.addEventListener("DOMContentLoaded", () => {
+        renderVariant(COMPONENTS.urlSelect.initial(), "#urlSelectMount");
+        fetch("/urllist").then(res => {if (!res.ok) {throw new Error("Bad response " + res.status);}return res.json();})
+            .then(data => {const rawList = Array.isArray(data) ? data : Array.isArray(data.urls) ? data.urls : [];
+        renderVariant(COMPONENTS.urlSelect.onfetchSuccess(rawList.map(item => {return { label: item.name,  value: item.url,  }})), "#urlSelectMount");})
+            .catch(err => { console.error("fetch failed:", err);renderVariant(COMPONENTS.urlSelect.onfetchFail(), "#urlSelectMount");});
+    });
+</script>
+</body>
+</html>

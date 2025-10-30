@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Interface</title>
+</head>
+<body>
+
+<script>
+    // const utils = {
+    //     create(type) {if (!type) throw new Error("utils.create: missing type");return document.createElement(type);},
+    //     one(selector) {return document.querySelector(selector) || null;},
+    //     all(selector) {return Array.from(document.querySelectorAll(selector))},
+    //     attrs(el, attrsObj = {}) {Object.entries(attrsObj).forEach(([key, val]) => {if (key === "text") {el.textContent = val ?? "";} else if (key === "className") {el.className = val ?? "";} else if (key in el) {el[key] = val;} else {el.setAttribute(key, val ?? "");}});return el;},
+    //     on(el, eventType, handler, options) {if (eventType && handler) {el.addEventListener(eventType, handler, options);}return el;},
+    //     append(parent, child) {if (!parent || !child) return parent;const parentEl = typeof parent === "string" ? utils.one(parent) : parent;if (!parentEl) return parent;if (Array.isArray(child)) {child.forEach(c => utils.append(parentEl, c));return parentEl;}if (typeof child === "string") {parentEl.appendChild(document.createTextNode(child));return parentEl;}if (child instanceof Node) {parentEl.appendChild(child);return parentEl;}if (child && typeof child === "object" && child.type) {parentEl.appendChild(utils.generate(child));}return parentEl;},
+    //     clear(el) {while (el.firstChild) el.removeChild(el.firstChild);return el;},
+    //     generate(config) {const {type, attrs = {}, on = {}, children = []} = config;const el = utils.create(type);utils.attrs(el, attrs);Object.entries(on).forEach(([eventType, handler]) => {utils.on(el, eventType, handler);});utils.append(el, children);return el;},
+    // };
+    const utils={
+        create:(type) =>{if (!type) throw new Error("utils.create: missing type");return document.createElement(type);},
+        query:(selector)=> {return document.querySelector(selector) || null;},
+        queryAll:(selector)=> {return Array.from(document.querySelectorAll(selector))},
+        setAttr:(el, attrsObj = {})=> {Object.entries(attrsObj).forEach(([key, val]) => {if (key === "text") {el.textContent = val ?? "";} else if (key === "className") {el.className = val ?? "";} else if (key in el) {el[key] = val;} else {el.setAttribute(key, val ?? "");}});return el;},
+        setEvent:(el, eventType, handler, options) =>{if (eventType && handler) {el.addEventListener(eventType, handler, options);}return el;},
+        append:(parent, child)=> {if (!parent || !child) return parent;const parentEl = typeof parent === "string" ? utils.query(parent) : parent;if (!parentEl) return parent;if (Array.isArray(child)) {child.forEach(c => utils.append(parentEl, c));return parentEl;}if (typeof child === "string") {parentEl.appendChild(document.createTextNode(child));return parentEl;}if (child instanceof Node) {parentEl.appendChild(child);return parentEl;}if (child && typeof child === "object" && child.type) {parentEl.appendChild(utils.generate(child));}return parentEl;},
+        clear:(el) =>{while (el.firstChild) el.removeChild(el.firstChild);return el;},
+        delAttr:(el,key)=>el.removeAttribute(key),
+        generate:(config) =>{const {type, attrs = {}, on = {}, children = []} = config;const el = utils.create(type);utils.setAttr(el, attrs);Object.entries(on).forEach(([eventType, handler]) => {utils.setEvent(el, eventType, handler);});utils.append(el, children);return el;},
+    }
+
+</script>
+</body>
+</html>

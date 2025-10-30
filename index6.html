@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flexible Image Cropper</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f6f7f9;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    #image-container {
+      margin-top: 20px;
+      max-width: 100%;
+      text-align: center;
+    }
+    #image-container img {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid #007bff;
+      background-color: #007bff;
+      color: #fff;
+      border-radius: 4px;
+      transition: background-color 0.2s;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    button:hover:not(:disabled) {
+      background-color: #0056b3;
+    }
+    /* Modal styles */
+    #modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+    #modal .modal-content {
+      background-color: #fff;
+      width: 80vw;
+      height: 80vh;
+      max-width: 800px;
+      max-height: 600px;
+      display: flex;
+      flex-direction: column;
+      border-radius: 6px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+    #modal .cropper-wrapper {
+      flex-grow: 1;
+      position: relative;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f0f0f0;
+    }
+    #cropCanvas {
+      cursor: crosshair;
+      user-select: none;
+    }
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      padding: 10px;
+      border-top: 1px solid #eee;
+      background-color: #fafafa;
+    }
+    .modal-buttons button {
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Image Cropper</h1>
+  <p>Select an image to load and crop:</p>
+  <input type="file" id="fileInput" accept="image/*">
+  <div id="image-container">
+    <img id="image" alt="No image loaded">
+  </div>
+  <button id="editButton" disabled>Edit</button>
+
+  <div id="modal">
+    <div class="modal-content">
+      <div class="cropper-wrapper">
+        <canvas id="cropCanvas"></canvas>
+      </div>
+      <div class="modal-buttons">
+        <button id="cancelButton" type="button">Cancel</button>
+        <button id="applyButton" type="button">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const workerScript = `
+      self.onmessage = function(e) {
+        // Immediately send the same data back to the main thread
+        self.postMessage(e.data);
+      };
+    `;
+
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    const cropWorker = new Worker(workerUrl);
+
+    let img = new Image();
+    let scaleRatio = 1;
+    const canvas = document.getElementById('cropCanvas');
+    const ctx = canvas.getContext('2d');
+    let selection = null;
+    let isSelecting = false;
+    let isResizing = false;
+    let isMoving = false;
+    let currentHandle = null;
+    let startX = 0;
+    let startY = 0;
+    let offsetX = 0;
+    let offsetY = 0;
+    const handleSize = 12;
+
+    const fileInput = document.getElementById('fileInput');
+    const imageElement = document.getElementById('image');
+    const editButton = document.getElementById('editButton');
+    const modal = document.getElementById('modal');
+    const applyButton = document.getElementById('applyButton');
+    const cancelButton = document.getElementById('cancelButton');
+    const wrapper = document.querySelector('.cropper-wrapper');
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (img && canvas.width && canvas.height) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      }
+      if (selection) {
+        const { x, y, w, h } = selection;
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(x, y, w, h);
+        ctx.restore();
+        ctx.save();
+        ctx.strokeStyle = '#00BFFF';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6]);
+        ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+        ctx.restore();
+        drawHandles();
+      }
+    }
+
+    function drawHandles() {
+      if (!selection) return;
+      const { x, y, w, h } = selection;
+      const half = handleSize / 2;
+      const positions = {
+        nw: { x: x, y: y },
+        n:  { x: x + w / 2, y: y },
+        ne: { x: x + w, y: y },
+        e:  { x: x + w, y: y + h / 2 },
+        se: { x: x + w, y: y + h },
+        s:  { x: x + w / 2, y: y + h },
+        sw: { x: x, y: y + h },
+        w:  { x: x, y: y + h / 2 }
+      };
+      ctx.save();
+      ctx.fillStyle = '#00BFFF';
+      for (const key in positions) {
+        const pos = positions[key];
+        ctx.fillRect(pos.x - half, pos.y - half, handleSize, handleSize);
+      }
+      ctx.restore();
+    }
+
+    // Determine if the mouse is over a handle and return its key
+    function getHandleAtPoint(mx, my) {
+      if (!selection) return null;
+      const { x, y, w, h } = selection;
+      const half = handleSize / 2;
+      const handles = {
+        nw: { x: x, y: y },
+        n:  { x: x + w / 2, y: y },
+        ne: { x: x + w, y: y },
+        e:  { x: x + w, y: y + h / 2 },
+        se: { x: x + w, y: y + h },
+        s:  { x: x + w / 2, y: y + h },
+        sw: { x: x, y: y + h },
+        w:  { x: x, y: y + h / 2 }
+      };
+      for (const key in handles) {
+        const pos = handles[key];
+        if (Math.abs(mx - pos.x) <= half && Math.abs(my - pos.y) <= half) {
+          return key;
+        }
+      }
+      return null;
+    }
+    fileInput.addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        imageElement.src = e.target.result;
+        editButton.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    editButton.addEventListener('click', function() {
+      if (!imageElement.src) return;
+      modal.style.display = 'flex';
+      img = new Image();
+      img.src = imageElement.src;
+      img.onload = function() {
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const maxWidth = wrapperRect.width;
+        const maxHeight = wrapperRect.height;
+        scaleRatio = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
+        const canvasWidth = img.naturalWidth * scaleRatio;
+        const canvasHeight = img.naturalHeight * scaleRatio;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        canvas.style.width = canvasWidth + 'px';
+        canvas.style.height = canvasHeight + 'px';
+        selection = null;
+        draw();
+      };
+    });
+    canvas.addEventListener('mousedown', function(e) {
+      if (modal.style.display !== 'flex') return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      currentHandle = getHandleAtPoint(mx, my);
+      if (currentHandle) {
+        isResizing = true;
+        isSelecting = false;
+        isMoving = false;
+      } else if (selection &&
+                 mx >= selection.x && mx <= selection.x + selection.w &&
+                 my >= selection.y && my <= selection.y + selection.h) {
+        isMoving = true;
+        isSelecting = false;
+        isResizing = false;
+        offsetX = mx - selection.x;
+        offsetY = my - selection.y;
+      } else {
+        isSelecting = true;
+        isResizing = false;
+        isMoving = false;
+        startX = mx;
+        startY = my;
+        selection = { x: startX, y: startY, w: 0, h: 0 };
+      }
+      draw();
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+      if (modal.style.display !== 'flex') return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      if (isSelecting) {
+        const x = Math.min(startX, mx);
+        const y = Math.min(startY, my);
+        const w = Math.abs(mx - startX);
+        const h = Math.abs(my - startY);
+        selection = { x, y, w, h };
+        draw();
+      } else if (isResizing && selection) {
+        resizeSelection(currentHandle, mx, my);
+        draw();
+      } else if (isMoving && selection) {
+        const newX = mx - offsetX;
+        const newY = my - offsetY;
+        let x = Math.max(0, Math.min(newX, canvas.width - selection.w));
+        let y = Math.max(0, Math.min(newY, canvas.height - selection.h));
+        selection = { x, y, w: selection.w, h: selection.h };
+        draw();
+      }
+    });
+
+    canvas.addEventListener('mouseup', function() {
+      if (isSelecting) {
+        isSelecting = false;
+        if (selection.w < 5 || selection.h < 5) {
+          selection = null;
+        }
+        draw();
+      }
+      if (isResizing) {
+        isResizing = false;
+        currentHandle = null;
+        draw();
+      }
+      if (isMoving) {
+        isMoving = false;
+        draw();
+      }
+    });
+
+    canvas.addEventListener('mouseleave', function() {
+      if (isSelecting) {
+        isSelecting = false;
+        draw();
+      }
+      if (isResizing) {
+        isResizing = false;
+        currentHandle = null;
+        draw();
+      }
+      if (isMoving) {
+        isMoving = false;
+        draw();
+      }
+    });
+
+    function resizeSelection(handle, mx, my) {
+      const minSize = 10;
+      let { x, y, w, h } = selection;
+      const right = x + w;
+      const bottom = y + h;
+      if (handle.includes('n')) {
+        const newY = Math.min(my, bottom - minSize);
+        y = newY;
+        h = bottom - newY;
+      }
+      if (handle.includes('s')) {
+        const newBottom = Math.max(my, y + minSize);
+        h = newBottom - y;
+      }
+      if (handle.includes('w')) {
+        const newX = Math.min(mx, right - minSize);
+        x = newX;
+        w = right - newX;
+      }
+      if (handle.includes('e')) {
+        const newRight = Math.max(mx, x + minSize);
+        w = newRight - x;
+      }
+      x = Math.max(0, Math.min(x, canvas.width - minSize));
+      y = Math.max(0, Math.min(y, canvas.height - minSize));
+      w = Math.max(minSize, Math.min(w, canvas.width - x));
+      h = Math.max(minSize, Math.min(h, canvas.height - y));
+      selection = { x, y, w, h };
+    }
+
+    cancelButton.addEventListener('click', function() {
+      modal.style.display = 'none';
+      selection = null;
+    });
+
+    applyButton.addEventListener('click', function() {
+      if (!selection || !img) return;
+      applyButton.disabled = true;
+      const cropX = selection.x / scaleRatio;
+      const cropY = selection.y / scaleRatio;
+      const cropW = selection.w / scaleRatio;
+      const cropH = selection.h / scaleRatio;
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = Math.round(cropW);
+      tempCanvas.height = Math.round(cropH);
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(
+        img,
+        cropX,
+        cropY,
+        cropW,
+        cropH,
+        0,
+        0,
+        tempCanvas.width,
+        tempCanvas.height
+      );
+      const croppedDataURL = tempCanvas.toDataURL('image/png');
+      cropWorker.postMessage({ result: croppedDataURL });
+    });
+
+    cropWorker.onmessage = function(event) {
+      const { result } = event.data;
+      applyButton.disabled = false;
+      if (result) {
+        imageElement.src = result;
+        modal.style.display = 'none';
+        selection = null;
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Interface</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script type="module" src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/2.0.1/cropper.min.js"></script>
+</head>
+<body class="mx-20 my-5">
+<div id="selectElmWrapper" class="relative">
+    <span class="font-semibold tracking-tight text-lg">Website URL:</span>
+    <select
+            class="border text-lg h-full ml-2 px-2 appearance-none text-center rounded-sm w-[28rem] bg-gray-50 border-gray-300 text-black focus:ring-black focus:border-black"
+            name="website_select" id="website_select" title="Website Select">
+        <option value="" selected>Please Wait... URLs are Loading</option>
+    </select>
+    <button
+            class="px-2 py-1 ml-5 bg-black text-white disabled:bg-gray-400 hover:bg-white hover:text-black border rounded-sm"
+            id="fetch_button" disabled>Fetch</button>
+</div>
+
+<div id="tableContainer" class="mt-6"></div>
+
+<script>
+    // ---------- Demo Data ----------
+    const Data = [
+        { Title:"Shirt", Price:"100", Currency:"INR", Brand:"Levis", ImageURL:"https://placehold.co/400x400",
+            Images:["https://placehold.co/600x400?text=1","https://placehold.co/400x600?text=2","https://placehold.co/700x300?text=3","https://placehold.co/300x700?text=4"],
+            Size:"L", Gender:"Male", Color:"Black", Fabric:"Cotton", Pattern:"Checkered", ProductURL:"https://example.com/product1" },
+        { Title:"Shirt", Price:"120", Currency:"INR", Brand:"Arrow", ImageURL:"https://placehold.co/400x400",
+            Images:["https://placehold.co/600x400?text=1","https://placehold.co/400x600?text=2","https://placehold.co/700x300?text=3","https://placehold.co/300x700?text=4"],
+            Size:"M", Gender:"Female", Color:"White", Fabric:"Linen", Pattern:"Checkered", ProductURL:"https://example.com/product2" },
+        { Title:"Pant", Price:"200", Currency:"USD", Brand:"Adidas", ImageURL:"https://placehold.co/400x400",
+            Images:["https://placehold.co/600x400?text=1","https://placehold.co/400x600?text=2","https://placehold.co/700x300?text=3","https://placehold.co/300x700?text=4"],
+            Size:"46", Gender:"Male", Color:"Navy Blue", Fabric:"Synthetic Cotton", Pattern:"Checkered", ProductURL:"https://example.com/product3" },
+        { Title:"Jacket", Price:"350", Currency:"EUR", Brand:"Zara", ImageURL:"https://placehold.co/400x400",
+            Images:["https://placehold.co/600x400?text=1","https://placehold.co/400x600?text=2","https://placehold.co/700x300?text=3","https://placehold.co/300x700?text=4"],
+            Size:"XL", Gender:"Female", Color:"Red", Fabric:"Wool", Pattern:"Checkered", ProductURL:"https://example.com/product4" },
+        { Title:"T-Shirt", Price:"80", Currency:"INR", Brand:"Puma", ImageURL:"https://placehold.co/400x400",
+            Images:["https://placehold.co/600x400?text=1","https://placehold.co/400x600?text=2","https://placehold.co/700x300?text=3","https://placehold.co/300x700?text=4"],
+            Size:"S", Gender:"Male", Color:"Green", Fabric:"Polyester", Pattern:"Checkered", ProductURL:"https://example.com/product5" },
+        { Title:"Kurta", Price:"150", Currency:"INR", Brand:"FabIndia", ImageURL:"https://placehold.co/400x400",
+            Images:["https://placehold.co/600x400?text=1","https://placehold.co/400x600?text=2","https://placehold.co/700x300?text=3","https://placehold.co/300x700?text=4"],
+            Size:"L", Gender:"Female", Color:"Yellow", Fabric:"Khadi", Pattern:"Checkered", ProductURL:"https://example.com/product6" }
+    ];
+    const Data2 = structuredClone(Data);
+
+    // ---------- Config / State ----------
+    const excludedFields = ["ImageURL",]; // hide raw array/url, we render custom cells
+    const stateStore = { selection:"", selectionConfirmation:"", data:[] };
+    const urlListEndPoint = "http://localhost:3100/urllist"; // keep yours
+    const messages = {
+        urlsFetchFailure: "Failed to fetch URL list",
+        urlsFetchSuccess: "Select a URL",
+    };
+
+    // ---------- Attributes / builders ----------
+    const attributes = {
+        hiddenOption: { value:"", class:"hidden" },
+        option:     (value) => ({ value, class:"text-left mx-2 max-w-fit" }),
+
+        Images: (images) => ({
+            type: "div",
+            attributes: {
+                onclick: "imgEditModal(event)",
+                class: "imager w-full h-auto text-center bg-transparent flex items-center justify-center font-bold cursor-pointer text-black hover:bg-black hover:bg-opacity-75 hover:text-white"
+            },
+            textContent: `+${Math.max(0, images.length - 1)}`
+        }),
+        ProductURL: (url) => ({
+            type:"div",
+            attributes:{ onclick:"setRowEditable(event)", class:"underline w-full h-full text-blue-900 cursor-pointer" },
+            textContent: url
+        }),
+        DB_Action: {
+            type:"button",
+            attributes:{ onclick:"insertToDBClick(event)", class:"px-2 py-1 m-1 bg-black rounded-lg cursor-pointer text-white" },
+            textContent:"Insert to DB"
+        },
+
+        table:   { class:"w-full border mt-5", id:"table" },
+        thead:   { class:"bg-gray-100", id:"table-header" },
+        theadRow:{ class:"" , id:"table-header-row" },
+        theadCell: (i)=>({ class:"px-3 py-2 font-semibold border-b", id:`table-head-row-0-cell-${i}` }),
+        tbody:   { id:"table-body" },
+        tbodyRow:{ class:"odd:bg-white even:bg-gray-50" },
+        tbodyCell: (i, j)=>({ class:"px-3 py-2 align-middle text-center border-b", id:`table-body-row-${i}-cell-${j}` }),
+
+        editableInput: (item, text)=>({
+            value:`${text}`,
+            oninput:"inputEvent(event)",
+            type:"text",
+            class:"p-0 mx-0.5 text-[13px] w-[92%] h-[90%] max-w-full text-center font-bold text-black outline outline-1 outline-black",
+            id:`${item.id}-input`
+        }),
+
+        loader: { class:"absolute inset-0 rounded-full border-4 border-dashed border-black animate-spin", id:"loader" },
+        loaderContainer: { class:"absolute top-12 left-1/2 -translate-x-1/2 w-40 h-40 flex items-center justify-center", id:"loaderWrapper" }
+    };
+
+    const assignedFields = (row) => {
+        const prodUrl = attributes.ProductURL(row.ProductURL);
+        const dbAction = attributes.DB_Action;
+        const imgBadge = attributes.Images(row.Images);
+        return {
+            DB_Action: [dbAction.type, Object.entries(dbAction.attributes), dbAction.textContent],
+            ProductURL: [prodUrl.type, Object.entries(prodUrl.attributes), prodUrl.textContent],
+            Images: [imgBadge.type, Object.entries(imgBadge.attributes), imgBadge.textContent]
+        };
+    };
+
+    // ---------- Actions ----------
+    const actions = {
+        domLoadAction: async () => {
+            await fetchUrlList(urlListEndPoint, elmById("website_select"));
+        },
+
+        addUrlList: (parent, data) => {
+            // don’t mutate shared attribute objects
+            const frag = document.createDocumentFragment();
+            data.slice(0, 500).forEach(({ url }) => {
+                frag.appendChild(createElm("option", Object.entries(attributes.option(String(url))), String(url)));
+            });
+            parent.appendChild(frag);
+        },
+
+        dispatchSelectionChoice: (url) => {
+            if (isValidUrl(url)) {
+                actions.activateFetchButton();
+                stateStore.selection = url;
+                alert(`Backend alerted to ready script for\n${url}`);
+                actions.showLoader();
+                setTimeout(actions.removeLoader, 500);
+            } else {
+                elmById("fetch_button").disabled = true;
+            }
+        },
+
+        dispatchFetchConfirmation: () => {
+            stateStore.selectionConfirmation = String(stateStore.selection);
+            const table = tableGenerator(stateStore.data);
+            const container = elmById("tableContainer");
+            container.innerHTML = "";
+            container.appendChild(table);
+
+            // small thumbnail on every ".imager"
+            document.querySelectorAll(".imager").forEach(el =>
+                el.append(createElm("img", Object.entries({ class:"float-start -z-10 w-8 h-8 object-cover", src:"https://placehold.co/50x50" })))
+            );
+
+            alert(`Request dispatched for Backend to execute script for\n${stateStore.selection}`);
+            actions.disableFetchButton();
+        },
+
+        showLoader: () => {
+            const wrap = elmById("selectElmWrapper");
+            if (!elmById(attributes.loaderContainer.id)) {
+                const wrapper = createElm("div", Object.entries(attributes.loaderContainer));
+                wrapper.appendChild(createElm("div", Object.entries(attributes.loader)));
+                wrap.appendChild(wrapper);
+            }
+        },
+
+        removeLoader: () => {
+            const w = elmById(attributes.loaderContainer.id);
+            if (w) w.remove();
+        },
+
+        activateFetchButton: () => {
+            const btn = elmById("fetch_button");
+            btn.disabled = false;
+        },
+
+        disableFetchButton: () => {
+            const btn = elmById("fetch_button");
+            btn.disabled = true;
+        }
+    };
+
+    // ---------- Utils ----------
+    function elmById(id){ return document.getElementById(id); }
+    function elmByQuery(q){ return document.querySelector(q); }
+    function cleanElm(elm){ while(elm.firstChild) elm.removeChild(elm.firstChild); return elm; }
+    function createElm(type, atrArr=null, textCont=null){
+        const elm = document.createElement(type);
+        if (atrArr){ atrArr.forEach(([k,v]) => elm.setAttribute(k, v)); }
+        if (textCont != null){
+            if (typeof textCont !== "object"){
+                elm.textContent = textCont;
+            } else {
+                // support nested [type, attrs, text]
+                elm.appendChild(createElm(...textCont));
+            }
+        }
+        return elm;
+    }
+    function elmChildrenAppender(parent, childrenArray){
+        childrenArray.forEach(child => parent.appendChild(child));
+        return parent;
+    }
+    function genElem({ type, attributes={}, textContent="", parent="" }){
+        const target = parent ? elmByQuery(`#${parent}`) : document.body;
+        return target.appendChild(createElm(type, Object.entries(attributes), textContent));
+    }
+    function isValidUrl(s){
+        try { new URL(s); return true; } catch { return false; }
+    }
+
+    // ---------- Fetch URL list & bootstrap ----------
+    async function fetchUrlList(urlListSourceEndPoint, dropDownElement){
+        async function responseStateHandler(response){
+            if (!response.ok){
+                throw new Error(`${messages.urlsFetchFailure}: ${response.status} ${response.statusText}`);
+            }
+            return await response.json();
+        }
+        function onSuccessResponseHandler(responseJSON){
+            // prep data with your assigned fields
+            stateStore.data = Data.map((d) => {
+                const copy = { ...d };
+                Object.assign(copy, assignedFields(d));
+                return copy;
+            });
+
+            cleanElm(dropDownElement)
+                .appendChild(createElm("option", Object.entries(attributes.hiddenOption), messages.urlsFetchSuccess));
+
+            actions.addUrlList(dropDownElement, responseJSON);
+            actions.removeLoader();
+        }
+        function onErrorHandler(err){
+            actions.disableFetchButton();
+            console.error(`${messages.urlsFetchFailure}:`, err);
+            cleanElm(dropDownElement)
+                .appendChild(createElm("option", Object.entries(attributes.hiddenOption), messages.urlsFetchFailure));
+        }
+
+        try {
+            actions.disableFetchButton();
+            actions.showLoader();
+            const res = await fetch(urlListSourceEndPoint);
+            const json = await responseStateHandler(res);
+            onSuccessResponseHandler(json);
+        } catch (e){
+            onErrorHandler(e);
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", actions.domLoadAction);
+
+    // ---------- Events ----------
+    elmById("website_select").addEventListener("change", (e) => {
+        actions.dispatchSelectionChoice(e.target.value);
+    });
+
+    elmById("fetch_button").addEventListener("click", () => {
+        actions.dispatchFetchConfirmation();
+    });
+
+    // ---------- Table generator & cell actions ----------
+    function tableGenerator(data){
+        const existing = elmById("table");
+        if (existing) existing.remove();
+
+        const keys = Object.keys(data[0]).filter(k => !excludedFields.includes(k));
+
+        const table = createElm("table", Object.entries(attributes.table));
+        const thead = createElm("thead", Object.entries(attributes.thead));
+        const headRow = createElm("tr", Object.entries(attributes.theadRow));
+
+        keys.forEach((key, i) => headRow.appendChild(createElm("th", Object.entries(attributes.theadCell(i)), key)));
+        thead.appendChild(headRow);
+
+        const tbody = createElm("tbody", Object.entries(attributes.tbody));
+
+        data.forEach((row, i) => {
+            const tr = createElm("tr", Object.entries(attributes.tbodyRow));
+            keys.forEach((key, j) => {
+                const td = createElm("td", Object.entries(attributes.tbodyCell(i, j)), row[key]);
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        return table;
+    }
+
+    function insertToDBClick(e){
+        unsetRowEditable(e);
+        // find row index from id pattern "...row-i-cell-j"
+        const cellId = e.currentTarget.parentElement.id;
+        const i = Number(cellId.split("-")[3]);
+        alert(`Inserting\n${Object.entries(Data[i]).map(([k,v]) => `${k}: ${v}`).join("\n")}\n\nto DB`);
+    }
+
+    function inputEvent(e){
+        const cellId = e.currentTarget.parentElement.id; // ...row-i-cell-j
+        const parts = cellId.split("-");
+        const i = Number(parts[3]);
+        const j = Number(parts[5]);
+        const keys = Object.keys(Data[0]).filter(k => !excludedFields.includes(k));
+        const field = keys[j];
+        Data[i][field] = e.currentTarget.value;
+    }
+
+    function setRowEditable(e){
+        const row = e.currentTarget.parentElement.parentElement;
+        Array.from(row.children).forEach((cell) => {
+            if (cell.childElementCount < 1){
+                const text = cell.textContent;
+                cell.textContent = "";
+                cell.appendChild(createElm("input", Object.entries(attributes.editableInput(cell, text))));
+            }
+        });
+    }
+
+    function unsetRowEditable(e){
+        const row = e.currentTarget.parentElement.parentElement;
+        Array.from(row.children).forEach((cell) => {
+            const input = cell.querySelector("input");
+            if (input){
+                const val = input.value;
+                input.remove();
+                cell.textContent = val;
+            }
+        });
+    }
+
+    // ---------- Image editor ----------
+
+    function closeimgEditModal(){
+        const m = elmById("imgEditModal");
+        if (m) m.remove();
+        const backdrop = elmById("imgEditModalBackdrop");
+        if (backdrop) backdrop.remove();
+    }
+
+    function modalImageItems(arr){
+        const doc = new DocumentFragment();
+        arr.forEach((img, i) => {
+            const wrap = createElm("div", Object.entries({
+                class:"relative col-span-1 border m-[5%] p-1 h-auto max-w-full",
+                id:`imgEditModalBodyItemContainer${i}`
+            }));
+
+            wrap.appendChild(createElm("img", Object.entries({
+                class:"aspect-auto max-h-[26vh] object-contain",
+                id:`imgEditModalBodyItemContainer${i}-image`,
+                "data-i":`${i}`, src:String(img)
+            })));
+
+            wrap.appendChild(createElm("input", Object.entries({
+                class:"absolute top-2 left-2", id:`imgEditModalBodyItemContainer${i}-input`,
+                type:"checkbox", name:`name${i}`, "data-i":`${i}`, "data-src":String(img)
+            })));
+
+            const btn = createElm("button", Object.entries({
+                class:"absolute right-2 top-1 w-8 aspect-square text-black font-semibold text-xl rounded-lg cursor-pointer cropperbutton",
+                "data-i":`${i}`, "data-src":String(img), id:`imgEditModalBodyItemContainer${i}-Edit`
+            }), "⤨");
+
+            wrap.appendChild(btn);
+            doc.appendChild(wrap);
+        });
+        return doc;
+    }
+
+    function modalEditor(images, src){
+        const editor = document.createElement("div");
+        editor.className = "flex h-full w-full gap-4 p-4 overflow-hidden";
+
+        // Left side: Scrollable preview thumbnails
+        const preview = document.createElement("div");
+        preview.className = "w-32 flex-shrink-0 flex flex-col gap-2 overflow-y-auto border-r border-gray-300 pr-3";
+
+        // Right side: Main cropper canvas
+        const main = document.createElement("div");
+        main.className = "flex-1 flex items-center justify-center overflow-hidden";
+
+        const cropperContainer = document.createElement("div");
+        cropperContainer.className = "w-full h-full flex items-center justify-center";
+
+        const cropper = document.createElement("cropper-canvas");
+        cropper.className = "w-full h-full";
+
+        const cropperImage = document.createElement("cropper-image");
+        cropperImage.src = src;
+        cropperImage.setAttribute("background", "true");
+        cropperImage.setAttribute("rotatable", "true");
+        cropperImage.setAttribute("scalable", "true");
+        cropperImage.setAttribute("skewable", "true");
+        cropperImage.setAttribute("translatable", "true");
+
+        const cropperShade = document.createElement("cropper-shade");
+        cropperShade.setAttribute("theme-color", "rgba(0, 0, 0, 0.5)");
+
+        const cropperSelection = document.createElement("cropper-selection");
+        cropperSelection.setAttribute("initial-coverage", "0.8");
+        cropperSelection.setAttribute("movable", "true");
+        cropperSelection.setAttribute("resizable", "true");
+        cropperSelection.setAttribute("zoomable", "true");
+
+        // Build cropper structure
+        cropperSelection.appendChild(cropperShade);
+        cropper.appendChild(cropperImage);
+        cropper.appendChild(cropperSelection);
+        cropperContainer.appendChild(cropper);
+        main.appendChild(cropperContainer);
+
+        // Add thumbnail previews
+        images.forEach((img) => {
+            const thumb = document.createElement("img");
+            thumb.src = img;
+            thumb.className = "w-full h-20 object-cover cursor-pointer border-2 border-gray-300 hover:border-black rounded transition-all";
+            thumb.onclick = () => {
+                cropperImage.src = img;
+            };
+            preview.appendChild(thumb);
+        });
+
+        editor.appendChild(preview);
+        editor.appendChild(main);
+        return editor;
+    }
+
+    const imageEditorAttributes = (productUrl) => ({
+        imgEditModal: {
+            type:"div",
+            attributes:{
+                class:"fixed flex flex-col top-[5vh] left-[10vw] right-[10vw] bottom-[5vh] w-[80vw] h-[90vh] bg-white border-2 border-black z-50 shadow-2xl",
+                id:"imgEditModal"
+            }
+        },
+        imgEditModalHeader: {
+            type:"div",
+            attributes:{
+                class:"flex justify-between items-center px-5 py-3 border-b-2 border-black bg-gray-50 flex-shrink-0",
+                id:"imgEditModalHeader"
+            },
+            parent:"imgEditModal"
+        },
+        imgEditModalHeaderTitle: {
+            type:"div",
+            attributes:{
+                class:"flex-1 px-5 font-bold text-lg text-center",
+                id:"imgEditModalHeaderTitle"
+            },
+            parent:"imgEditModalHeader"
+        },
+        imgEditModalHeaderProductTitle: {
+            type:"div",
+            attributes:{
+                class:"truncate",
+                id:"imgEditModalHeaderProductTitle"
+            },
+            textContent:`Product: ${productUrl}`,
+            parent:"imgEditModalHeaderTitle"
+        },
+        imgEditModalHeaderCloseButton: {
+            type:"button",
+            attributes:{
+                class:"w-10 h-10 flex items-center justify-center rounded-lg border-2 border-gray-300 hover:border-black hover:bg-gray-100 cursor-pointer font-bold text-xl transition-all",
+                id:"imgEditModalHeaderCloseButton",
+                onclick:"closeimgEditModal(event)"
+            },
+            textContent:"✕",
+            parent:"imgEditModalHeader"
+        },
+        imgEditModalBody: {
+            type:"div",
+            attributes:{
+                class:"grid grid-cols-2 border-t-2 border-black place-items-center gap-5 px-4 py-4 overflow-auto flex-1",
+                id:"imgEditModalBody"
+            },
+            parent:"imgEditModal"
+        },
+    });
+
+    function imgEditModal(event){
+        const cell = event.currentTarget.closest("td");
+        const parts = cell.id.split("-");
+        const rowIndex = Number(parts[3]);
+
+        const product = Data[rowIndex].ProductURL;
+        const images = Data2[rowIndex].Images;
+
+        const backdrop = document.createElement("div");
+        backdrop.id = "imgEditModalBackdrop";
+        backdrop.className = "fixed inset-0 bg-black bg-opacity-50 z-40";
+        backdrop.onclick = closeimgEditModal;
+        document.body.appendChild(backdrop);
+
+        const editorDom = imageEditorAttributes(product);
+        for (const key in editorDom){ genElem(editorDom[key]); }
+
+        const container = elmById("imgEditModal");
+        const body1 = elmById("imgEditModalBody");
+        body1.appendChild(modalImageItems(images));
+
+        document.querySelectorAll(".cropperbutton").forEach(el => {
+            el.onclick = (e) => {
+                const src = e.currentTarget.dataset.src;
+                const body2 = modalEditor(images, src);
+                container.replaceChild(body2, body1);
+            };
+        });
+    }
+
+</script>
+</body>
+</html>

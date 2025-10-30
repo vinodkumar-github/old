@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Cropper (fixed coords + DPR)</title>
+    <style>
+        body { margin:0; background:#f6f6f6; font-family:system-ui, sans-serif; display:grid; place-items:center; height:100vh; }
+        #container { position:relative; width: 800px; height: 500px; background:#fff; border:1px solid #ddd; }
+        canvas#overlay { position:absolute; inset:0; width:100%; height:100%; display:block; background:url('https://picsum.photos/1200/800') center/cover no-repeat; }
+        #crop { position:absolute; top:100px; left:150px; width:300px; height:200px; box-sizing:border-box; border:2px dashed #ff4d4d; background-color:rgba(255,0,0,0.04); }
+        #crop textarea { position:absolute; background:transparent; border:none; resize:none; outline:none; padding:0; margin:0; pointer-events:auto; }
+        /* handles */
+        #left,#right { top:0; width:8px; height:100%; cursor:ew-resize; }
+        #left { left:-4px; }  #right { right:-4px; }
+        #top,#bottom { left:0; width:100%; height:8px; cursor:ns-resize; }
+        #top { top:-4px; }    #bottom { bottom:-4px; }
+    </style>
+</head>
+<body>
+<div id="container">
+    <canvas id="overlay"></canvas>
+    <div id="crop">
+        <textarea id="left"></textarea>
+        <textarea id="right"></textarea>
+        <textarea id="top"></textarea>
+        <textarea id="bottom"></textarea>
+    </div>
+</div>
+
+<script>
+    const container = document.getElementById('container');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+    const crop = document.getElementById('crop');
+    const handles = {
+        left:   document.getElementById('left'),
+        right:  document.getElementById('right'),
+        top:    document.getElementById('top'),
+        bottom: document.getElementById('bottom')
+    };
+
+    function fitCanvasToCSS() {
+        const dpr = window.devicePixelRatio || 1;
+        const { width, height } = canvas.getBoundingClientRect();
+        // Only reset if needed to avoid clearing history unnecessarily
+        if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+            canvas.width = Math.round(width * dpr);
+            canvas.height = Math.round(height * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // from now on, use CSS pixels in drawing
+        }
+    }
+
+    let drawScheduled = false;
+    function scheduleDraw() {
+        if (drawScheduled) return;
+        drawScheduled = true;
+        requestAnimationFrame(() => {
+            drawScheduled = false;
+            drawOverlay();
+        });
+    }
+
+    function getCropRectInCanvasSpace() {
+        // DOMRects in viewport space:
+        const cropRect = crop.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        // Convert to canvas’ CSS pixel space:
+        return {
+            x: cropRect.left - canvasRect.left,
+            y: cropRect.top  - canvasRect.top,
+            width: cropRect.width,
+            height: cropRect.height
+        };
+    }
+
+    function drawOverlay() {
+        fitCanvasToCSS();
+        const { width: wCSS, height: hCSS } = canvas.getBoundingClientRect();
+        // Clear complete canvas (CSS pixels, thanks to transform)
+        ctx.clearRect(0, 0, wCSS, hCSS);
+
+        // Optional: dim outside crop area
+        const r = getCropRectInCanvasSpace();
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(0, 0, wCSS, hCSS);
+        ctx.clearRect(r.x, r.y, r.width, r.height); // punch a hole
+        ctx.restore();
+
+        // Stroke the crop rect
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'red';
+        ctx.strokeRect(r.x, r.y, r.width, r.height);
+    }
+
+    // Observe crop changes -> redraw
+    new ResizeObserver(() => scheduleDraw()).observe(crop);
+    // Also redraw on window resize (canvas DPR/layout can change)
+    window.addEventListener('resize', scheduleDraw);
+
+    // ====== Resizing logic with handles ======
+    let active = null;
+    let startX = 0, startY = 0, startRect = null;
+
+    Object.entries(handles).forEach(([side, el]) => {
+        el.addEventListener('mousedown', e => {
+            active = side;
+            const r = crop.getBoundingClientRect();
+            startRect = {
+                left:  r.left,
+                top:   r.top,
+                right: r.right,
+                bottom:r.bottom,
+                width: r.width,
+                height:r.height
+            };
+            startX = e.clientX;
+            startY = e.clientY;
+            el.setPointerCapture(e.pointerId);
+        });
+
+        el.addEventListener('mousemove', e => {
+            if (!active) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            const parentRect = container.getBoundingClientRect();
+
+            // compute new box in viewport coords
+            let left = startRect.left;
+            let top  = startRect.top;
+            let right= startRect.right;
+            let bottom=startRect.bottom;
+
+            const minW = 30, minH = 30;
+
+            if (active === 'left')   left   = Math.min(startRect.right - minW, Math.max(parentRect.left, startRect.left + dx));
+            if (active === 'right')  right  = Math.max(startRect.left + minW,  Math.min(parentRect.right, startRect.right + dx));
+            if (active === 'top')    top    = Math.min(startRect.bottom - minH,Math.max(parentRect.top,  startRect.top + dy));
+            if (active === 'bottom') bottom = Math.max(startRect.top + minH,   Math.min(parentRect.bottom,startRect.bottom + dy));
+
+            // apply as offsets inside container
+            crop.style.left   = (left   - parentRect.left) + 'px';
+            crop.style.top    = (top    - parentRect.top)  + 'px';
+            crop.style.width  = (right  - left)  + 'px';
+            crop.style.height = (bottom - top)   + 'px';
+
+            scheduleDraw();
+        });
+
+        el.addEventListener('mouseup', e => {
+            active = null;
+            el.releasePointerCapture(e.pointerId);
+        });
+    });
+
+    // Initial draw
+    scheduleDraw();
+</script>
+</body>
+</html>
